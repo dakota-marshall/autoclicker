@@ -13,6 +13,8 @@ import (
 	hook "github.com/robotn/gohook"
 )
 
+const app_version = "v1.1.1"
+
 // Autoclicker Related Functions
 
 func autoClicker(keystate <-chan bool, delay_chan <-chan int64) {
@@ -131,7 +133,7 @@ func main() {
 
 	// Create the window
 	application := app.New()
-	window := application.NewWindow("Autoclicker")
+	window := application.NewWindow("Autoclicker " + app_version)
 
 	// Status box
 	status_label := widget.NewLabel("Status: ")
