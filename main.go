@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"strconv"
+	"time"
 
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
@@ -13,23 +15,44 @@ import (
 
 // Autoclicker Related Functions
 
-func autoClicker(keystate <-chan bool) {
+func autoClicker(keystate <-chan bool, delay_chan <-chan int64) {
+
+	var state bool
+	var delay int64
 
 	for {
 
-		keystate := <-keystate
+		state = <-keystate
 
-		if keystate {
+		// Dont block on delay read
+		select {
+		case delay_read := <-delay_chan:
+			delay = delay_read
+		default:
+		}
+
+		if state {
 			robotgo.Click()
-			// robotgo.KeyTap("w")
+		}
+		if delay != 0 {
+			time.Sleep(time.Duration(delay) * time.Millisecond)
 		}
 	}
 }
 
 func updateKeyState(keystate chan<- bool, state bool) func(e hook.Event) {
 	return func(e hook.Event) {
-		// fmt.Println("Setting keystate to: " + strconv.FormatBool(state))
-		keystate <- state
+
+		if state {
+			// Dont block to add true's to the queue
+			select {
+			case keystate <- state:
+			default:
+			}
+		} else {
+			// Do block to add false to queue no matter what
+			keystate <- state
+		}
 	}
 }
 
@@ -93,33 +116,49 @@ func main() {
 	keystate := make(chan bool, 2)
 	keystate <- false
 
+	delay_chan := make(chan int64, 2)
+	delay_chan <- 0
+
+	var delay int64
+	delay = 0
 	keybind := "p"
 
 	// Run our key event thread
 	go eventHooks(keystate, keybind)
 
 	// Run our autoclicker thread
-	go autoClicker(keystate)
+	go autoClicker(keystate, delay_chan)
 
 	// Create the window
 	application := app.New()
 	window := application.NewWindow("Autoclicker")
 
+	// Status box
 	status_label := widget.NewLabel("Status: ")
 	clicker_status_label := widget.NewLabel("On")
 	status_text := container.New(layout.NewHBoxLayout(), status_label, clicker_status_label)
 
+	// Keybind box
 	keybind_label := widget.NewLabel("Button to auto-click:")
-	// keybind_key_label := widget.NewLabel(keybind)
 	keybind_key := widget.NewEntry()
 	keybind_key.SetText(keybind)
 	keybind_key.OnChanged = func(input string) { updateKeybind(input, &keybind) }
 	keybind_text := container.New(layout.NewHBoxLayout(), keybind_label, keybind_key)
 
+	// Delay box
+	delay_label := widget.NewLabel("Click Delay (Milliseconds):")
+	delay_key := widget.NewEntry()
+	delay_key.SetText(strconv.FormatInt(0, 10))
+	delay_key.OnChanged = func(input string) { delay, _ = strconv.ParseInt(input, 10, 64) }
+	delay_button := widget.NewButton("Update", func() { delay_chan <- delay })
+	delay_text := container.New(layout.NewHBoxLayout(), delay_label, delay_key, delay_button)
+
+	// Buttons
 	hooks_start_button := widget.NewButton("Start Autoclicker", startEventHooks(keystate, &keybind, clicker_status_label))
 	hooks_stop_button := widget.NewButton("Stop Autoclicker", stopEventHooks(clicker_status_label))
 
-	content := container.New(layout.NewVBoxLayout(), status_text, keybind_text, hooks_start_button, hooks_stop_button)
+	// Entire window
+	content := container.New(layout.NewVBoxLayout(), status_text, keybind_text, delay_text, hooks_start_button, hooks_stop_button)
 
 	window.SetContent(content)
 	window.ShowAndRun()
